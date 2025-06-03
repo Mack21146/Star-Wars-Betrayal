@@ -6,52 +6,31 @@ using UnityEngine.InputSystem;
 
 public class PlayerMovement : MonoBehaviour
 {
-    [SerializeField] private int walkSpeed;
-    [SerializeField] private int runSpeed;
+    [SerializeField] private float moveSpeed = 2f;
+    [SerializeField] private float runSpeed = 3f;
 
-    Vector2 moveInput;
+    private Vector2 input;
+    public bool isRunning = false;
 
-    Rigidbody2D rb;
-    Animator anim;
+    private Rigidbody2D rb;
 
-    private void Awake()
+    private Vector2 movementDirection;
+
+    private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
-        anim = GetComponent<Animator>();
+    }
+
+    void Update()
+    {
+        input.x = Input.GetAxisRaw("Horizontal");
+        input.y = Input.GetAxisRaw("Vertical");
+
+        input.Normalize();
     }
 
     private void FixedUpdate()
     {
-        rb.velocity = new Vector2(moveInput.x, moveInput.y);
-    }
-
-    public void OnMove(InputAction.CallbackContext context)
-    {
-        moveInput = context.ReadValue<Vector2>();
-
-        SetFacingDirection(moveInput);
-    }
-
-    private void SetFacingDirection(Vector2 moveInput)
-    {
-        if(moveInput.x > 0)
-        {
-            anim.SetBool("isWalking", true);
-            anim.SetBool("facingRight", true);
-            anim.SetBool("facingDown", false);
-            anim.SetBool("facingLeft", false);
-            anim.SetBool("facingUp", false);
-        }
-
-        else
-        {
-            anim.SetBool("isWalking", false);
-        }
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
+        rb.velocity = input * moveSpeed;
     }
 }
