@@ -1,32 +1,36 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
-using UnityEngine.AI;
 
 public class B1_AiBehaviour : MonoBehaviour
 {
     public Transform player;
     public List<Transform> patrolPoints;
-    
-    public float viewDistance = 10f;
-    public float viewAngle = 60f;
-    public float searchDuration = 5f;
-    public float searchRadius = 5f;
 
-    private NavMeshAgent agent;
+    public float moveSpeed = 2f;
+    public float viewDistance = 100f;
+    public float viewAngle = 60f;
+    public float searchDuration = 4f;
+    public float searchRadius = 3f;
+
+    private Rigidbody2D rb;
     private int currentPatrolIndex = 0;
-    private Vector3 lastKnownPlayerPosition;
+    private Vector2 lastKnownPlayerPosition;
     private float searchTimer = 0f;
-    private Vector3 currentSearchTarget;
-    private bool hasReachedLastKnownPosition;
+    private bool hasReachedLastKnownPosition = false;
 
     private enum State { Patrolling, Chasing, Searching, Returning }
     private State currentState = State.Patrolling;
 
     void Start()
     {
-        agent = GetComponent<NavMeshAgent>();
-        GoToNextPatrolPoint();
+        rb = GetComponent<Rigidbody2D>();
+
+        if (patrolPoints.Count > 0)
+        {
+            GoToNextPatrolPoint();
+        }
     }
 
     void Update()
@@ -43,103 +47,127 @@ public class B1_AiBehaviour : MonoBehaviour
                 break;
 
             case State.Chasing:
-                agent.SetDestination(player.position);
-                if (!CanSeePlayer())
-                {
-                    lastKnownPlayerPosition = player.position;
-                    currentState = State.Searching;
-                    searchTimer = 0f;
-                }
+                Chase();
                 break;
 
             case State.Searching:
-                searchTimer += Time.deltaTime;
-
-                if (!hasReachedLastKnownPosition)
-                {
-                    agent.SetDestination(lastKnownPlayerPosition);
-                    if (Vector3.Distance(transform.position, lastKnownPlayerPosition) < 1.5f)
-                    {
-                        hasReachedLastKnownPosition = true;
-                        PickNewSearchPosition();
-                    }
-                }
-                else
-                {
-                    if (!agent.pathPending && agent.remainingDistance < 0.5f)
-                    {
-                        PickNewSearchPosition();
-                    }
-                }
-
-                if (searchTimer >= searchDuration)
-                {
-                    hasReachedLastKnownPosition = false;
-                    currentState = State.Returning;
-                    GoToNextPatrolPoint();
-                }
-
-                if (CanSeePlayer())
-                {
-                    currentState = State.Chasing;
-                    hasReachedLastKnownPosition = false;
-                }
+                Search();
                 break;
 
             case State.Returning:
-                if (!agent.pathPending && agent.remainingDistance < 0.5f)
-                {
-                    currentState = State.Patrolling;
-                    GoToNextPatrolPoint();
-                }
+                ReturnToPatrol();
                 break;
         }
-    }
-
-    bool CanSeePlayer()
-    {
-        Vector3 dirToPlayer = player.position - transform.position;
-        float angle = Vector3.Angle(transform.forward, dirToPlayer);
-
-        if (dirToPlayer.magnitude < viewDistance && angle < viewAngle * 0.5f)
-        {
-            if (Physics.Raycast(transform.position + Vector3.up, dirToPlayer.normalized, out RaycastHit hit, viewDistance))
-            {
-                if (hit.collider.CompareTag("Player"))
-                    return true;
-            }
-        }
-
-        return false;
     }
 
     void Patrol()
     {
-        if (!agent.pathPending && agent.remainingDistance < 0.5f)
+        MoveTowards(patrolPoints[currentPatrolIndex].position);
+
+        if (Vector2.Distance(transform.position, patrolPoints[currentPatrolIndex].position) < 0.2f)
         {
             GoToNextPatrolPoint();
+        }
+    }
+
+    void Chase()
+    {
+        MoveTowards(player.position);
+
+        if (!CanSeePlayer())
+        {
+            lastKnownPlayerPosition = player.position;
+            hasReachedLastKnownPosition = false;
+            searchTimer = 0f;
+            currentState = State.Searching;
+        }
+    }
+
+    void Search()
+    {
+        searchTimer += Time.deltaTime;
+
+        if (!hasReachedLastKnownPosition)
+        {
+            MoveTowards(lastKnownPlayerPosition);
+
+            if (Vector2.Distance(transform.position, lastKnownPlayerPosition) < 0.2f)
+            {
+                hasReachedLastKnownPosition = true;
+            }
+        }
+        else
+        {
+            Vector2 randomPos = lastKnownPlayerPosition + Random.insideUnitCircle * searchRadius;
+            MoveTowards(randomPos);
+        }
+
+        if (searchTimer >= searchDuration)
+        {
+            hasReachedLastKnownPosition = false;
+            currentState = State.Returning;
+        }
+
+        if (CanSeePlayer())
+        {
+            currentState = State.Chasing;
+            hasReachedLastKnownPosition = false;
+        }
+    }
+
+    void ReturnToPatrol()
+    {
+        MoveTowards(patrolPoints[currentPatrolIndex].position);
+
+        if (Vector2.Distance(transform.position, patrolPoints[currentPatrolIndex].position) < 0.2f)
+        {
+            currentState = State.Patrolling;
         }
     }
 
     void GoToNextPatrolPoint()
     {
         if (patrolPoints.Count == 0) return;
-
-        agent.SetDestination(patrolPoints[currentPatrolIndex].position);
         currentPatrolIndex = (currentPatrolIndex + 1) % patrolPoints.Count;
     }
 
-    void PickNewSearchPosition()
+    void MoveTowards(Vector2 target)
     {
-        Vector2 randomCircle = Random.insideUnitCircle * searchRadius;
-        Vector3 randomPos = lastKnownPlayerPosition + new Vector3(randomCircle.x, 0, randomCircle.y);
+        Vector2 dir = (target - (Vector2)transform.position).normalized;
+        rb.velocity = dir * moveSpeed;
+    }
 
-        NavMeshHit hit;
+    bool CanSeePlayer()
+    {
+        Vector2 dirToPlayer = (player.position - transform.position);
+        float distanceToPlayer = dirToPlayer.magnitude;
 
-        if(NavMesh.SamplePosition(randomPos, out hit, 2f, NavMesh.AllAreas))
+        if (distanceToPlayer < viewDistance)
         {
-            currentSearchTarget = hit.position;
-            agent.SetDestination(currentSearchTarget);
+            // Use the direction the enemy is facing — adjust depending on your sprite orientation
+            Vector2 facingDir = transform.up; // or transform.right if your enemy faces right in the Sprite Editor
+
+            float angle = Vector2.Angle(facingDir, dirToPlayer);
+            if (angle < viewAngle * 0.5f)
+            {
+                // Raycast toward the player to check for obstacles
+                RaycastHit2D hit = Physics2D.Raycast(transform.position, dirToPlayer.normalized, viewDistance);
+
+                if (hit.collider != null)
+                {
+                    if (hit.collider.CompareTag("Player"))
+                    {
+                        Debug.DrawLine(transform.position, hit.point, Color.green);
+                        return true;
+                    }
+                    else
+                    {
+                        Debug.DrawLine(transform.position, hit.point, Color.red);
+                    }
+                }
+            }
         }
+
+        return false;
     }
 }
